@@ -1,10 +1,39 @@
 import random
 import sys
+import uuid
 import requests
+import mysql.connector
+from dotenv import load_dotenv
+import os
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
 
 def api_fipe():
     print('Iniciando script')
     try:
+        conn = mysql.connector.connect(
+            host=os.getenv("DB_HOST"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME")
+        )
+        # Verificar se a conexão foi bem-sucedida
+        if conn.is_connected():
+            print("Conexão bem-sucedida ao MySQL")
+
+            # Criar um cursor
+            cursor = conn.cursor()
+
+            # Executar uma consulta SELECT simples
+            cursor.execute("SELECT VERSION()")
+
+            # Obter o resultado da consulta
+            version = cursor.fetchone()
+            print("Versão do MySQL:", version)
+        else:
+            print("Falha na conexão ao MySQL")
+        
         # Pega o valor de referencia mais atual para seguir na busca
         reference_month_code = get_reference_month()
         
@@ -16,8 +45,21 @@ def api_fipe():
             model_code = get_model(reference_month_code, brand_code)
             year_model = get_year_model(reference_month_code, brand_code, model_code)
             vehicle    = get_vehicle(reference_month_code, brand_code, model_code, year_model.split("-"))
+            
+            # Insere os dados no banco de Dados
+            id_uuid = uuid.uuid4()
+            name_vehicle =  f"{vehicle['Marca']} {vehicle['Modelo']} - {vehicle['AnoModelo']} {vehicle['Combustivel']}"
+            valor_sem_simbolo = vehicle['Valor'].replace('R$', '').replace('.', '').replace(',', '.')
+            
+            sql = "INSERT INTO  vehicles (id, vehicles_name, fipe_code, price) VALUES (%s, %s, %s, %s)"
+            valores = (str(id_uuid), name_vehicle, vehicle['CodigoFipe'], valor_sem_simbolo)
+            cursor.execute(sql, valores)
+
+            # Salvar (commit) as mudanças
+            conn.commit()
 
             print('---------------------------------------------------------------------')
+        conn.close()
     except Exception as e:
         print(f"Ocorreu um erro: {e} - Linha: {sys.exc_info()[-1].tb_lineno}")
         sys.exit()
@@ -135,10 +177,8 @@ def connect_fipe(endpoint, payload=None):
         if payload is None:
             payload = {}
             
-        # Faz a requisição POST
         response = requests.post(url, headers=headers, json=payload)
         
-        # Retorna os dados JSON
         return response.json()
     except Exception as e:
         print(f"Erro na conexão com a API da FIPE: {e} - Linha: {sys.exc_info()[-1].tb_lineno}")
